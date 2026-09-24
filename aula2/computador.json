@@ -1,0 +1,5 @@
+[
+	{"nome": "Computador 1", "processador": "I5 10ª Geração", "Ram": "8GB"},
+	{"nome": "Computador 2", "processador": "I7 11ª Geração", "Ram": "16GB"},
+	{"nome": "Computador 3", "processador": "I9 12ª Geração", "Ram": "32GB"}
+]

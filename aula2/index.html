@@ -1,0 +1,102 @@
+<body>
+
+  <h1>Consulta de Dados</h1>
+  <div class="controles">
+    <label for="recurso">O que deseja consultar?</label>
+    <br><br>
+
+    <select id="recurso">
+      <option value="">-- Selecione --</option>
+      <option value="pessoas">Pessoas</option>
+      <option value="computadores">Computadores</option>
+      <option value="celulares">Celulares</option>
+    </select>
+
+    <button id="btn-consultar">Consultar</button>
+  </div>
+
+  <div id="resultado">
+    <p class="vazio">Nenhuma consulta realizada ainda.</p>
+  </div>
+
+  <script>
+   
+    const FONTES = {
+      pessoas:  	'pessoa.json',
+      computadores: 	'computador.json',
+      celulares:	'celular.json'
+    };
+
+    const selectRecurso  = document.getElementById('recurso');
+    const btnConsultar   = document.getElementById('btn-consultar');
+    const divResultado   = document.getElementById('resultado');
+
+ 
+    function renderizarLista(dados) {
+      if (!dados || dados.length === 0) {
+        divResultado.innerHTML = '<p class="vazio">Nenhum registro encontrado.</p>';
+        return;
+      }
+
+      const ul = document.createElement('ul');
+
+      dados.forEach(item => {
+        const li = document.createElement('li');
+
+        // Monta "chave: valor | chave: valor | ..."
+        const texto = Object.entries(item)
+          .map(([chave, valor]) => `<strong>${chave}:</strong> ${valor}`)
+          .join(' | ');
+
+        li.innerHTML = texto;
+        ul.appendChild(li);
+      });
+
+      divResultado.innerHTML = '';
+      divResultado.appendChild(ul);
+    }
+
+    async function consultar() {
+      const recurso = selectRecurso.value;
+
+      
+      if (!recurso) {
+        divResultado.innerHTML =
+          '<p class="erro">Escolha um recurso antes de consultar.</p>';
+        return;
+      }
+
+      
+      divResultado.innerHTML = '<p class="vazio">Consultando...</p>';
+
+      
+      const arquivo = FONTES[recurso];
+
+      try {
+        
+        const resposta = await fetch(arquivo);
+
+        if (!resposta.ok) {
+          throw new Error(`HTTP ${resposta.status}`);
+        }
+
+        
+        const dados = await resposta.json();
+
+        
+        renderizarLista(dados);
+
+      } catch (erro) {
+        
+        divResultado.innerHTML =
+          `<p class="erro">Erro ao consultar: ${erro.message}</p>`;
+      }
+    }
+
+  
+    btnConsultar.addEventListener('click', consultar);
+
+  </script>
+
+</body>
+</html>
