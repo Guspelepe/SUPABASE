@@ -7,9 +7,11 @@
 
     <select id="recurso">
       <option value="">-- Selecione --</option>
-      <option value="pessoas">Pessoas</option>
-      <option value="computadores">Computadores</option>
-      <option value="celulares">Celulares</option>
+      <option value="musicas">Músicas</option>
+      <option value="esportes">Esportes</option>
+      <option value="animal">Animal</option>
+      <option value="filmes_e_series">Filmes e Series</option>
+      <option value="comida">Comida</option>
     </select>
 
     <button id="btn-consultar">Consultar</button>
@@ -22,9 +24,11 @@
   <script>
    
     const FONTES = {
-      pessoas:  	'pessoa.json',
-      computadores: 	'computador.json',
-      celulares:	'celular.json'
+      comida: 	'https://api.jsonbin.io/v3/b/6abb0164ffd5d1605339a22a',
+      musicas:  	'https://api.jsonbin.io/v3/b/6abb00c2ac6210605a000279',
+      esportes: 	'https://api.jsonbin.io/v3/b/6abaffbfffd5d16053399b64',
+      animal:	'https://api.jsonbin.io/v3/b/6abb00a4ac6210605a0001d2',
+      filmes_e_series: 'https://api.jsonbin.io/v3/b/6abb00a9ac6210605a0001ee'
     };
 
     const selectRecurso  = document.getElementById('recurso');
@@ -58,38 +62,31 @@
 
     async function consultar() {
       const recurso = selectRecurso.value;
-
       
       if (!recurso) {
-        divResultado.innerHTML =
-          '<p class="erro">Escolha um recurso antes de consultar.</p>';
+        divResultado.innerHTML = '<p class="erro">Escolha um recurso antes de consultar.</p>';
         return;
       }
-
       
       divResultado.innerHTML = '<p class="vazio">Consultando...</p>';
-
-      
       const arquivo = FONTES[recurso];
 
       try {
-        
         const resposta = await fetch(arquivo);
 
         if (!resposta.ok) {
           throw new Error(`HTTP ${resposta.status}`);
         }
-
         
-        const dados = await resposta.json();
-
+        const jsonResponse = await resposta.json();
         
+        // CORREÇÃO: Se existir a propriedade 'record' (padrão do JSONBin), usamos ela. Senão, usamos o JSON direto.
+        const dados = jsonResponse.record ? jsonResponse.record : jsonResponse;
+
         renderizarLista(dados);
 
       } catch (erro) {
-        
-        divResultado.innerHTML =
-          `<p class="erro">Erro ao consultar: ${erro.message}</p>`;
+        divResultado.innerHTML = `<p class="erro">Erro ao consultar: ${erro.message}</p>`;
       }
     }
 
