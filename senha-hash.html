@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cadastro</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 420px; margin: 60px auto; padding: 0 20px; }
+    input, textarea, button { width: 100%; padding: 10px; margin: 8px 0; box-sizing: border-box; font-size: 15px; }
+    button { background: #3ecf8e; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+    button:disabled { opacity: .5; cursor: wait; }
+    .msg { margin-top: 12px; padding: 10px; border-radius: 6px; display: none; }
+    .ok  { background: #e7f7ef; color: #1a7f4f; }
+    .err { background: #fdecec; color: #c0392b; }
+  </style>
+</head>
+<body>
+  <h2>Cadastro</h2>
+  <form id="form">
+    <input id="usuario" placeholder="Usuário" required>
+    <input id="senha" type="password" placeholder="Senha" required>
+    <textarea id="informacoes" placeholder="Informações" rows="3"></textarea>
+    <button type="submit" id="btn">Cadastrar</button>
+  </form>
+  <div id="msg" class="msg"></div>
+ 
+  <!-- 1. Importando o Supabase -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+ 
+  <script>
+    // Suas credenciais do Supabase
+    const SUPABASE_URL = 'https://etmucxjxoljxknfxigxj.supabase.co';   
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0bXVjeGp4b2xqeGtuZnhpZ3hqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk0MjYxMzYsImV4cCI6MjEwNTAwMjEzNn0.YSXOLNYSVvy8RCPYVcl6jalEzEm6eeDSSAV2gnS0ea0';       
+      
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+ 
+    const form = document.getElementById('form');
+    const msg  = document.getElementById('msg');
+    const btn  = document.getElementById('btn');
+ 
+    function showMsg(text, ok) {
+      msg.textContent = text;
+      msg.className = 'msg ' + (ok ? 'ok' : 'err');
+      msg.style.display = 'block';
+    }
+ 
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      btn.disabled = true;
+      msg.style.display = 'none'; // Esconde mensagens anteriores
+ 
+      const usuario     = document.getElementById('usuario').value.trim();
+      const senhaPura   = document.getElementById('senha').value;
+      const informacoes = document.getElementById('informacoes').value.trim();
+ 
+      // Chamando a RPC no Supabase (Sua versão)
+      const { data, error: selectError } = await supabaseClient
+        .rpc('register_user', {
+          p_usuario: usuario,
+          p_senha: senhaPura,
+          p_informacao: informacoes
+        });
+ 
+      btn.disabled = false;
+ 
+      // Correção: Verificando o 'selectError' e mostrando a mensagem na tela
+      if (selectError) {
+        showMsg('Erro: ' + selectError.message, false);
+        console.error('Erro retornado pela RPC:', selectError);
+      } else {
+        showMsg('Cadastro realizado com sucesso!', true);
+        form.reset();
+      }
+    });
+  </script>
+</body>
+</html>

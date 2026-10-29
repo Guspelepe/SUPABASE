@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 420px; margin: 60px auto; padding: 0 20px; }
+    input, button { width: 100%; padding: 10px; margin: 8px 0; box-sizing: border-box; font-size: 15px; }
+    button { background: #3ecf8e; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+    button:disabled { opacity: .5; cursor: wait; }
+    .msg { margin-top: 12px; padding: 10px; border-radius: 6px; display: none; }
+    .ok  { background: #e7f7ef; color: #1a7f4f; }
+    .err { background: #fdecec; color: #c0392b; }
+    .link-cadastro { display: block; text-align: center; margin-top: 15px; color: #3ecf8e; text-decoration: none; font-size: 14px; }
+    .link-cadastro:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h2>Login</h2>
+  <form id="loginForm">
+    <input id="usuario" placeholder="Usuário" required>
+    <input id="senha" type="password" placeholder="Senha" required>
+    <button type="submit" id="btn">Entrar</button>
+  </form>
+  <div id="msg" class="msg"></div>
+  
+  <a href="senha-hash.html" class="link-cadastro">Não tem uma conta? Cadastre-se</a>
+ 
+  <!-- Importando o Supabase -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+ 
+  <script>
+    // Suas credenciais do Supabase (as mesmas do cadastro)
+    const SUPABASE_URL = 'https://etmucxjxoljxknfxigxj.supabase.co';   
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0bXVjeGp4b2xqeGtuZnhpZ3hqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk0MjYxMzYsImV4cCI6MjEwNTAwMjEzNn0.YSXOLNYSVvy8RCPYVcl6jalEzEm6eeDSSAV2gnS0ea0';       
+      
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+ 
+    const form = document.getElementById('loginForm');
+    const msg  = document.getElementById('msg');
+    const btn  = document.getElementById('btn');
+ 
+    function showMsg(text, ok) {
+      msg.textContent = text;
+      msg.className = 'msg ' + (ok ? 'ok' : 'err');
+      msg.style.display = 'block';
+    }
+ 
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      btn.disabled = true;
+      msg.style.display = 'none';
+ 
+      const usuario   = document.getElementById('usuario').value.trim();
+      const senhaPura = document.getElementById('senha').value;
+ 
+      // Chamando a RPC de login
+      const { data, error: selectError } = await supabaseClient
+        .rpc('login_user', {
+          p_usuario: usuario,
+          p_senha: senhaPura
+        });
+ 
+      btn.disabled = false;
+ 
+      if (selectError) {
+        showMsg('Erro de conexão: ' + selectError.message, false);
+        return;
+      }
+      
+      if (data && data.success === false) {
+        showMsg(data.message, false);
+        return;
+      }
+
+      // LOGIN COM SUCESSO!
+      showMsg('Login realizado! Redirecionando...', true);
+      
+      localStorage.setItem('usuario_logado', JSON.stringify({
+        id: data.user_id,
+        nome: data.usuario
+      }));
+
+      setTimeout(() => {
+        window.location.href = 'mapa.html'; 
+      }, 1500);
+    });
+  </script>
+</body>
+</html>
