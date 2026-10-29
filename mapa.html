@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mapa Colaborativo</title>
     
+    <!-- Estilos do Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
@@ -15,6 +16,7 @@
         body { margin: 0; font-family: system-ui, sans-serif; }
         #map { height: 100vh; width: 100%; background-color: #e5e5e5; }
         
+        /* Garante que os pinos fiquem na frente do mapa de fundo */
         .leaflet-marker-pane { z-index: 600 !important; }
         .leaflet-popup-pane { z-index: 700 !important; }
         .leaflet-overlay-pane { z-index: 400 !important; }
@@ -71,12 +73,16 @@
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0bXVjeGp4b2xqeGtuZnhpZ3hqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk0MjYxMzYsImV4cCI6MjEwNTAwMjEzNn0.YSXOLNYSVvy8RCPYVcl6jalEzEm6eeDSSAV2gnS0ea0';       
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+        let nomeUsuarioLogado = 'Anônimo';
+
+        // Verifica Login e pega o nome
         const userStr = localStorage.getItem('usuario_logado');
         if (!userStr) {
             alert('Você precisa fazer login primeiro.');
             window.location.href = 'login.html';
         } else {
             const user = JSON.parse(userStr);
+            nomeUsuarioLogado = user.nome;
             document.getElementById('nome-usuario').textContent = user.nome;
         }
 
@@ -109,7 +115,7 @@
             geocoder: L.Control.Geocoder.nominatim({
                 geocodingQueryParams: {
                     viewbox: '-51.20,-26.10,-50.95,-26.35', 
-                    bounded: 1 
+                    bounded: 1
                 }
             })
         }).on('markgeocode', function(e) {
@@ -148,11 +154,6 @@
                 .bindPopup("Você está aqui (precisão de " + Math.round(e.accuracy) + " metros).").openPopup();
             L.circle(e.latlng, { radius: e.accuracy / 2, color: 'blue', fillColor: '#3ecf8e', fillOpacity: 0.2 }).addTo(map);
         });
-
-        map.on('locationerror', function(e) {
-            alert("Não foi possível obter sua localização: " + e.message);
-        });
-
 
         const markersCluster = L.markerClusterGroup();
         map.addLayer(markersCluster);
@@ -208,6 +209,7 @@
                     fotoUrl = publicUrlData.publicUrl;
                 }
 
+                // Salva no banco incluindo o nome do usuário logado
                 const { error: insertError } = await supabaseClient
                     .from('ocorrencias')
                     .insert([{
@@ -215,12 +217,18 @@
                         descricao: descricao,
                         categoria: categoria,
                         foto_url: fotoUrl,
+                        usuario_nome: nomeUsuarioLogado, // Aqui vai o nome de quem fez!
                         localizacao: `POINT(${clickLng} ${clickLat})`
                     }]);
 
                 if (insertError) throw insertError;
                 
                 document.getElementById('btn-cancelar').click();
+                
+                // TRUQUE: Dá um zoom e centraliza onde a pessoa cadastrou
+                map.setView([clickLat, clickLng], 17);
+                
+                // A mensagem de alert pode ser trocada por um Toast (mais elegante), mas o alert funciona bem
                 alert('Ocorrência salva com sucesso!');
 
             } catch (error) {
@@ -232,8 +240,16 @@
             }
         });
 
-        function adicionarMarcadorNoMapa(lat, lng, titulo, categoria, descricao, fotoUrl) {
-            let popupContent = `<b>${titulo}</b> (${categoria})<br>${descricao || ''}`;
+        function adicionarMarcadorNoMapa(lat, lng, titulo, categoria, descricao, fotoUrl, usuarioNome) {
+            // Agora o popup mostra quem cadastrou
+            let popupContent = `
+                <div style="font-family: sans-serif; font-size: 14px;">
+                    <b style="font-size: 16px;">${titulo}</b> <span style="color: #666;">(${categoria})</span><br>
+                    <span style="font-size: 12px; color: #888;">Reportado por: <b>${usuarioNome || 'Anônimo'}</b></span>
+                    <hr style="border: 0; border-top: 1px solid #eee; margin: 8px 0;">
+                    ${descricao || 'Sem descrição.'}
+                </div>
+            `;
             if (fotoUrl) {
                 popupContent += `<br><img src="${fotoUrl}" loading="lazy" style="max-width: 150px; max-height: 150px; border-radius: 4px; margin-top: 5px; object-fit: cover;">`;
             }
@@ -265,21 +281,24 @@
                 return;
             }
 
+            markersCluster.clearLayers(); // Limpa antes de recarregar para não duplicar
+
             data.forEach(o => {
-                adicionarMarcadorNoMapa(o.lat, o.lng, o.titulo, o.categoria, o.descricao, o.foto_url);
+                adicionarMarcadorNoMapa(o.lat, o.lng, o.titulo, o.categoria, o.descricao, o.foto_url, o.usuario_nome);
             });
         }
 
         carregarOcorrencias();
 
+        // Realtime: se alguém cadastrar, recarrega tudo na hora
         supabaseClient
             .channel('ocorrencias-realtime')
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ocorrencias' },
                 (payload) => {
-                    markersCluster.clearLayers(); 
+                    console.log('Nova ocorrência detectada em tempo real!');
                     carregarOcorrencias(); 
                 }
             ).subscribe();
     </script>
 </body>
-</html>v
+</html>
