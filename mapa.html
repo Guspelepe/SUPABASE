@@ -7,20 +7,22 @@
     
     <!-- Estilos do Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Estilos do Cluster -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+    <!-- Estilos do Geocoder (Busca) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
-    <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
     
     <style>
         body { margin: 0; font-family: system-ui, sans-serif; }
         #map { height: 100vh; width: 100%; background-color: #e5e5e5; }
         
-        /* Garante que os pinos fiquem na frente do mapa de fundo */
+        /* Garante que os pinos e popups fiquem por cima de tudo */
         .leaflet-marker-pane { z-index: 600 !important; }
         .leaflet-popup-pane { z-index: 700 !important; }
         .leaflet-overlay-pane { z-index: 400 !important; }
 
+        /* Estilo do Modal de Cadastro */
         #modal {
             display: none; position: fixed; top: 50%; left: 50%; 
             transform: translate(-50%, -50%); background: white; 
@@ -31,10 +33,29 @@
         #modal button { width: 100%; padding: 10px; background: #3ecf8e; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
         #modal button.fechar { background: #ccc; margin-top: 5px; }
         
+        /* Cabeçalho do Usuário */
         .header-info {
             position: absolute; top: 10px; left: 50px; z-index: 1000;
             background: white; padding: 10px; border-radius: 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.3);
         }
+        
+        /* Animação do Polígono de Risco */
+        .area-risco { animation: pulse 2s infinite; }
+        @keyframes pulse {
+            0% { fill-opacity: 0.2; }
+            50% { fill-opacity: 0.6; }
+            100% { fill-opacity: 0.2; }
+        }
+
+        /* Estilo do Bonequinho */
+        .icone-boneco {
+            font-size: 40px; 
+            line-height: 1; 
+            cursor: grab;
+            user-select: none;
+            filter: drop-shadow(0px 4px 6px rgba(0,0,0,0.6));
+        }
+        .icone-boneco:active { cursor: grabbing; }
     </style>
 </head>
 <body>
@@ -45,6 +66,7 @@
 
     <div id="map"></div>
 
+    <!-- Modal de Cadastro -->
     <div id="modal">
         <h3>Reportar Problema</h3>
         <input type="text" id="titulo" placeholder="Título (ex: Buraco na rua)" required>
@@ -61,21 +83,28 @@
         <button class="fechar" id="btn-cancelar">Cancelar</button>
     </div>
 
+    <!-- Scripts do Leaflet e Bibliotecas -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
     <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+    
+    <!-- CORREÇÃO: Link do CDN unpkg para o PolylineDecorator -->
+    <script src="https://unpkg.com/leaflet-polylinedecorator@1.5.1/dist/leaflet.polylineDecorator.js"></script>
+    
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-    <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.1/leaflet-maplibre-gl.js"></script>
     
     <script>
+        // Credenciais do Supabase
         const SUPABASE_URL = 'https://etmucxjxoljxknfxigxj.supabase.co';   
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0bXVjeGp4b2xqeGtuZnhpZ3hqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk0MjYxMzYsImV4cCI6MjEwNTAwMjEzNn0.YSXOLNYSVvy8RCPYVcl6jalEzEm6eeDSSAV2gnS0ea0';       
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         let nomeUsuarioLogado = 'Anônimo';
+        let todasOcorrencias = []; 
+        let riscoAtivado = false;
+        let marcadorPessoa = null;
 
-        // Verifica Login e pega o nome
+        // Verifica se o usuário está logado
         const userStr = localStorage.getItem('usuario_logado');
         if (!userStr) {
             alert('Você precisa fazer login primeiro.');
@@ -92,91 +121,251 @@
             window.location.href = 'login.html';
         });
 
-        const map = L.map('map', {
-            minZoom: 12,
-            maxZoom: 18
-        }).setView([-26.23, -51.08], 14);
+        // Inicialização do Mapa (Focado em União da Vitória / Porto União)
+        const map = L.map('map', { minZoom: 12, maxZoom: 18 }).setView([-26.23, -51.08], 14);
+        map.setMaxBounds(L.latLngBounds([[-26.35, -51.20], [-26.10, -50.95]]));
 
-        const bounds = L.latLngBounds(
-            [-26.35, -51.20], 
-            [-26.10, -50.95]  
-        );
-        map.setMaxBounds(bounds);
-
+        // Mapa de Fundo (OpenStreetMap)
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '© OpenStreetMap'
         }).addTo(map);
 
+        // Camada para as linhas do boneco
+        const linhasProximidadeLayer = L.layerGroup().addTo(map);
+
+        // --- CONTROLES DO MAPA ---
+        
+        // 1. Barra de Pesquisa (Limitada à região)
         L.Control.geocoder({
             defaultMarkGeocode: false,
             position: 'topleft',
             placeholder: 'Pesquisar na região...',
             geocoder: L.Control.Geocoder.nominatim({
-                geocodingQueryParams: {
-                    viewbox: '-51.20,-26.10,-50.95,-26.35', 
-                    bounded: 1
-                }
+                geocodingQueryParams: { viewbox: '-51.20,-26.10,-50.95,-26.35', bounded: 1 }
             })
         }).on('markgeocode', function(e) {
-            const bbox = e.geocode.bbox;
-            const poly = L.polygon([
-                bbox.getSouthEast(),
-                bbox.getNorthEast(),
-                bbox.getNorthWest(),
-                bbox.getSouthWest()
-            ]);
-            map.fitBounds(poly.getBounds());
+            map.fitBounds(L.polygon([e.geocode.bbox.getSouthEast(), e.geocode.bbox.getNorthEast(), e.geocode.bbox.getNorthWest(), e.geocode.bbox.getSouthWest()]).getBounds());
         }).addTo(map);
 
+        // 2. Áreas de Risco (PostGIS)
+        const areasRiscoLayer = L.layerGroup();
+        const btnRisco = L.control({ position: 'topleft' });
+        btnRisco.onAdd = function (map) {
+            const div = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+            L.DomEvent.disableClickPropagation(div);
+            const link = L.DomUtil.create('a', '', div);
+            link.innerHTML = '🛑'; link.href = '#'; link.title = 'Ver Áreas de Risco'; 
+            link.style.fontSize = '20px'; link.style.lineHeight = '30px'; link.style.textAlign = 'center'; link.style.width = '30px';
+            
+            link.onclick = async function(e) {
+                e.preventDefault();
+                riscoAtivado = !riscoAtivado;
+                if (riscoAtivado) {
+                    link.style.backgroundColor = '#ffcccc';
+                    await carregarAreasDeRisco();
+                    areasRiscoLayer.addTo(map);
+                } else {
+                    link.style.backgroundColor = '#fff';
+                    map.removeLayer(areasRiscoLayer);
+                }
+            };
+            return div;
+        };
+        btnRisco.addTo(map);
+
+        // 3. Minha Localização (GPS)
         const btnLocalizacao = L.control({ position: 'topleft' });
         btnLocalizacao.onAdd = function (map) {
             const div = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+            L.DomEvent.disableClickPropagation(div);
             const link = L.DomUtil.create('a', '', div);
-            link.innerHTML = '📍';
-            link.href = '#';
-            link.title = 'Minha Localização';
-            link.style.fontSize = '20px';
-            link.style.lineHeight = '30px';
-            link.style.textAlign = 'center';
-            link.style.width = '30px';
+            link.innerHTML = '📍'; link.href = '#'; link.title = 'Minha Localização';
+            link.style.fontSize = '20px'; link.style.lineHeight = '30px'; link.style.textAlign = 'center'; link.style.width = '30px';
             
-            link.onclick = function(e) {
-                e.preventDefault();
-                map.locate({ setView: true, maxZoom: 16 });
-            };
+            link.onclick = function(e) { e.preventDefault(); map.locate({ setView: true, maxZoom: 16 }); };
             return div;
         };
         btnLocalizacao.addTo(map);
 
-        map.on('locationfound', function(e) {
-            L.marker(e.latlng).addTo(map)
-                .bindPopup("Você está aqui (precisão de " + Math.round(e.accuracy) + " metros).").openPopup();
-            L.circle(e.latlng, { radius: e.accuracy / 2, color: 'blue', fillColor: '#3ecf8e', fillOpacity: 0.2 }).addTo(map);
-        });
+        // 4. Bonequinho Arrastável
+        const btnPessoa = L.control({ position: 'topleft' });
+        btnPessoa.onAdd = function (map) {
+            const div = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+            L.DomEvent.disableClickPropagation(div); 
+            const link = L.DomUtil.create('a', '', div);
+            link.innerHTML = '🚶'; link.href = '#'; link.title = 'Arrastar Boneco (Ver mais próximos)';
+            link.style.fontSize = '22px'; link.style.lineHeight = '30px'; link.style.textAlign = 'center'; link.style.width = '30px';
+            
+            link.onclick = function(e) {
+                e.preventDefault();
+                document.getElementById('modal').style.display = 'none';
 
+                if (marcadorPessoa) {
+                    map.removeLayer(marcadorPessoa);
+                    marcadorPessoa = null;
+                    linhasProximidadeLayer.clearLayers();
+                } else {
+                    const iconePessoa = L.divIcon({
+                        className: '',
+                        html: '<div class="icone-boneco">🚶</div>',
+                        iconSize: [40, 40],
+                        iconAnchor: [20, 40]
+                    });
+                    
+                    marcadorPessoa = L.marker(map.getCenter(), { icon: iconePessoa, draggable: true, zIndexOffset: 1000 }).addTo(map);
+                    
+                    // Evita que clicar no boneco abra o modal de cadastro
+                    marcadorPessoa.on('mousedown', function(ev) { L.DomEvent.stopPropagation(ev); });
+                    
+                    // Atualiza em tempo real enquanto arrasta
+                    marcadorPessoa.on('drag', function(ev) { 
+                        calcularMaisProximos(ev.target.getLatLng()); 
+                    });
+                    
+                    marcadorPessoa.on('dragend', function(ev) { 
+                        calcularMaisProximos(ev.target.getLatLng()); 
+                    });
+
+                    calcularMaisProximos(marcadorPessoa.getLatLng());
+                }
+            };
+            return div;
+        };
+        btnPessoa.addTo(map);
+
+        // --- FUNÇÕES DE CÁLCULO E DESENHO DAS SETAS ---
+        function calcularMaisProximos(latlng) {
+            linhasProximidadeLayer.clearLayers(); 
+
+            if (!todasOcorrencias || todasOcorrencias.length === 0) {
+                if (!marcadorPessoa.getPopup()) {
+                    marcadorPessoa.bindPopup('Nenhuma ocorrência no banco.', { autoPan: false }).openPopup();
+                } else {
+                    marcadorPessoa.setPopupContent('Nenhuma ocorrência no banco.');
+                }
+                return;
+            }
+
+            // Calcula a distância de todas as ocorrências até o boneco
+            const comDistancia = todasOcorrencias.map(o => {
+                const pontoOcorrencia = L.latLng(o.lat, o.lng);
+                const distancia = latlng.distanceTo(pontoOcorrencia); // Distância em metros
+                return { ...o, distancia: distancia };
+            }).sort((a, b) => a.distancia - b.distancia); // Ordena do mais perto pro mais longe
+
+            const top3 = comDistancia.slice(0, 3); // Pega os 3 primeiros
+            
+            // Cores para diferenciar as setas
+            const coresSetas = ['#d32f2f', '#1976d2', '#388e3c']; // Vermelho, Azul, Verde
+
+            let html = '<div style="font-family: sans-serif; font-size: 13px; width: 230px;"><b>📍 Mais próximos:</b><hr style="margin: 5px 0;">';
+            
+            top3.forEach((o, index) => {
+                const destino = L.latLng(o.lat, o.lng);
+                const cor = coresSetas[index];
+                
+                // Formata a distância (metros ou km)
+                const distFmt = o.distancia > 1000 ? (o.distancia/1000).toFixed(1) + ' km' : Math.round(o.distancia) + ' m';
+                
+                // Adiciona no Popup
+                html += `<div style="margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid #eee;">
+                    <b style="color: ${cor}; font-size: 14px;">${index + 1}. ${o.titulo}</b> <br>
+                    <span style="color: #333; font-weight: bold;">${distFmt}</span> <span style="color: #666;">(${o.categoria})</span>
+                </div>`;
+
+                // Desenha a linha sólida e grossa
+                const linha = L.polyline([latlng, destino], {
+                    color: cor,
+                    weight: 6, 
+                    opacity: 1,
+                    interactive: false
+                });
+
+                // Adiciona a seta apontando para o pino
+                const seta = L.polylineDecorator(linha, {
+                    patterns: [{
+                        offset: '100%', 
+                        symbol: L.Symbol.arrowHead({
+                            pixelSize: 18, 
+                            polygon: true,
+                            pathOptions: { fillOpacity: 1, stroke: false, color: cor }
+                        })
+                    }]
+                });
+
+                linhasProximidadeLayer.addLayer(linha);
+                linhasProximidadeLayer.addLayer(seta);
+            });
+            
+            html += '</div>';
+            
+            // Atualiza o popup sem fechá-lo (evita o bug de sumir)
+            if (!marcadorPessoa.getPopup()) {
+                marcadorPessoa.bindPopup(html, { autoPan: false, closeButton: false, offset: [0, -20] }).openPopup();
+            } else {
+                marcadorPessoa.setPopupContent(html);
+                if (!marcadorPessoa.isPopupOpen()) {
+                    marcadorPessoa.openPopup();
+                }
+            }
+        }
+
+        // --- FUNÇÃO PARA DESENHAR ÁREAS DE RISCO (POSTGIS) ---
+        async function carregarAreasDeRisco() {
+            areasRiscoLayer.clearLayers();
+            
+            // Chama a função SQL que agrupa pontos (Raio de 300m, min 3 pontos)
+            const { data, error } = await supabaseClient.rpc('buscar_areas_de_risco', { eps_meters: 300, min_points: 3 });
+
+            if (error) { alert('Erro ao calcular áreas de risco.'); return; }
+            if (data.length === 0) { alert('Nenhuma área crítica encontrada (mínimo 3 pontos a 300m).'); return; }
+
+            data.forEach(area => {
+                const geojson = JSON.parse(area.area_geojson);
+                
+                // Desenha o polígono vermelho
+                const poligono = L.geoJSON(geojson, {
+                    className: 'area-risco',
+                    style: { color: '#e74c3c', weight: 2, fillColor: '#e74c3c', fillOpacity: 0.3 }
+                }).bindPopup(`<div style="text-align: center;"><h3 style="color: #e74c3c; margin: 0 0 5px 0;">⚠️ Área de Risco</h3><p><b>${area.total_pontos} ocorrências</b> de <b>${area.cat}</b>.</p></div>`);
+                
+                areasRiscoLayer.addLayer(poligono);
+                
+                // Adiciona o ícone de aviso no centro
+                const iconeAviso = L.divIcon({
+                    className: 'custom-div-icon',
+                    html: `<div style="background-color:#e74c3c; color:white; border-radius:50%; width:30px; height:30px; display:flex; align-items:center; justify-content:center; font-size:16px; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.5);">⚠️</div>`,
+                    iconSize: [30, 30], iconAnchor: [15, 15]
+                });
+                L.marker([area.lat_centro, area.lng_centro], { icon: iconeAviso }).addTo(areasRiscoLayer);
+            });
+            alert(`${data.length} áreas de risco encontradas!`);
+        }
+
+        // --- LÓGICA DE CADASTRO E CARREGAMENTO ---
         const markersCluster = L.markerClusterGroup();
         map.addLayer(markersCluster);
 
         let clickLat, clickLng;
 
+        // Abre o modal ao clicar no mapa
         map.on('click', function(e) {
             clickLat = e.latlng.lat;
             clickLng = e.latlng.lng;
             document.getElementById('modal').style.display = 'block';
         });
 
-        document.getElementById('modal').addEventListener('click', function(e) {
-            e.stopPropagation();
-        });
-
+        // Impede que clicar no modal feche ele
+        document.getElementById('modal').addEventListener('click', function(e) { e.stopPropagation(); });
+        
+        // Botão Cancelar
         document.getElementById('btn-cancelar').addEventListener('click', () => {
             document.getElementById('modal').style.display = 'none';
-            document.getElementById('titulo').value = '';
-            document.getElementById('descricao').value = '';
-            document.getElementById('foto').value = '';
+            document.getElementById('titulo').value = ''; document.getElementById('descricao').value = ''; document.getElementById('foto').value = '';
         });
 
+        // Botão Salvar
         document.getElementById('btn-salvar').addEventListener('click', async () => {
             const titulo = document.getElementById('titulo').value;
             const categoria = document.getElementById('categoria').value;
@@ -184,75 +373,55 @@
             const fileInput = document.getElementById('foto');
             const btn = document.getElementById('btn-salvar');
 
-            if (!titulo) {
-                alert('Por favor, preencha o título.');
-                return;
-            }
+            if (!titulo) { alert('Por favor, preencha o título.'); return; }
 
-            btn.disabled = true;
-            btn.textContent = 'Salvando...';
+            btn.disabled = true; btn.textContent = 'Salvando...';
             let fotoUrl = null;
 
             try {
+                // 1. Upload da Foto
                 if (fileInput.files.length > 0) {
                     const file = fileInput.files[0];
                     const fileName = `${Date.now()}-${file.name}`;
-                    
-                    const { data: uploadData, error: uploadError } = await supabaseClient
-                        .storage.from('fotos-ocorrencias').upload(fileName, file);
-
+                    const { data: uploadData, error: uploadError } = await supabaseClient.storage.from('fotos-ocorrencias').upload(fileName, file);
                     if (uploadError) throw uploadError;
-
-                    const { data: publicUrlData } = supabaseClient
-                        .storage.from('fotos-ocorrencias').getPublicUrl(fileName);
-                    
+                    const { data: publicUrlData } = supabaseClient.storage.from('fotos-ocorrencias').getPublicUrl(fileName);
                     fotoUrl = publicUrlData.publicUrl;
                 }
 
-                // Salva no banco incluindo o nome do usuário logado
-                const { error: insertError } = await supabaseClient
-                    .from('ocorrencias')
-                    .insert([{
-                        titulo: titulo,
-                        descricao: descricao,
-                        categoria: categoria,
-                        foto_url: fotoUrl,
-                        usuario_nome: nomeUsuarioLogado, // Aqui vai o nome de quem fez!
-                        localizacao: `POINT(${clickLng} ${clickLat})`
-                    }]);
+                // 2. Salvar no Banco (PostGIS WKT)
+                const { error: insertError } = await supabaseClient.from('ocorrencias').insert([{
+                    titulo, 
+                    descricao, 
+                    categoria, 
+                    foto_url: fotoUrl, 
+                    usuario_nome: nomeUsuarioLogado, 
+                    localizacao: `POINT(${clickLng} ${clickLat})`
+                }]);
 
                 if (insertError) throw insertError;
                 
                 document.getElementById('btn-cancelar').click();
-                
-                // TRUQUE: Dá um zoom e centraliza onde a pessoa cadastrou
                 map.setView([clickLat, clickLng], 17);
-                
-                // A mensagem de alert pode ser trocada por um Toast (mais elegante), mas o alert funciona bem
-                alert('Ocorrência salva com sucesso!');
+                alert('Ocorrência salva!');
 
             } catch (error) {
-                console.error(error);
-                alert('Erro ao salvar: ' + error.message);
+                console.error(error); alert('Erro ao salvar: ' + error.message);
             } finally {
-                btn.disabled = false;
-                btn.textContent = 'Salvar Ocorrência';
+                btn.disabled = false; btn.textContent = 'Salvar Ocorrência';
             }
         });
 
+        // Função para adicionar o marcador na tela
         function adicionarMarcadorNoMapa(lat, lng, titulo, categoria, descricao, fotoUrl, usuarioNome) {
-            // Agora o popup mostra quem cadastrou
             let popupContent = `
                 <div style="font-family: sans-serif; font-size: 14px;">
                     <b style="font-size: 16px;">${titulo}</b> <span style="color: #666;">(${categoria})</span><br>
                     <span style="font-size: 12px; color: #888;">Reportado por: <b>${usuarioNome || 'Anônimo'}</b></span>
-                    <hr style="border: 0; border-top: 1px solid #eee; margin: 8px 0;">
-                    ${descricao || 'Sem descrição.'}
+                    <hr style="border: 0; border-top: 1px solid #eee; margin: 8px 0;">${descricao || 'Sem descrição.'}
                 </div>
             `;
-            if (fotoUrl) {
-                popupContent += `<br><img src="${fotoUrl}" loading="lazy" style="max-width: 150px; max-height: 150px; border-radius: 4px; margin-top: 5px; object-fit: cover;">`;
-            }
+            if (fotoUrl) popupContent += `<br><img src="${fotoUrl}" loading="lazy" style="max-width: 150px; max-height: 150px; border-radius: 4px; margin-top: 5px; object-fit: cover;">`;
 
             let cor = 'blue';
             if (categoria === 'acidente') cor = 'red';
@@ -263,42 +432,35 @@
             const iconeColorido = new L.Icon({
                 iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${cor}.png`,
                 shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-                iconSize: [25, 41],
-                iconAnchor: [12, 41],
-                popupAnchor: [1, -34],
-                shadowSize: [41, 41]
+                iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
             });
 
-            const marker = L.marker([lat, lng], { icon: iconeColorido }).bindPopup(popupContent);
-            markersCluster.addLayer(marker);
+            markersCluster.addLayer(L.marker([lat, lng], { icon: iconeColorido }).bindPopup(popupContent));
         }
 
+        // Puxa as ocorrências do banco
         async function carregarOcorrencias() {
             const { data, error } = await supabaseClient.rpc('buscar_ocorrencias_mapa');
+            if (error) { console.error('Erro ao buscar ocorrências:', error); return; }
 
-            if (error) {
-                console.error('Erro ao buscar ocorrências:', error);
-                return;
-            }
-
-            markersCluster.clearLayers(); // Limpa antes de recarregar para não duplicar
-
+            todasOcorrencias = data; 
+            markersCluster.clearLayers();
             data.forEach(o => {
                 adicionarMarcadorNoMapa(o.lat, o.lng, o.titulo, o.categoria, o.descricao, o.foto_url, o.usuario_nome);
             });
+            
+            if (marcadorPessoa) calcularMaisProximos(marcadorPessoa.getLatLng());
         }
 
         carregarOcorrencias();
 
-        // Realtime: se alguém cadastrar, recarrega tudo na hora
-        supabaseClient
-            .channel('ocorrencias-realtime')
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ocorrencias' },
-                (payload) => {
-                    console.log('Nova ocorrência detectada em tempo real!');
-                    carregarOcorrencias(); 
-                }
-            ).subscribe();
+        // Tempo real (Supabase Realtime)
+        supabaseClient.channel('ocorrencias-realtime').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ocorrencias' },
+            (payload) => {
+                carregarOcorrencias(); 
+                if (riscoAtivado) carregarAreasDeRisco();
+            }
+        ).subscribe();
     </script>
 </body>
 </html>
